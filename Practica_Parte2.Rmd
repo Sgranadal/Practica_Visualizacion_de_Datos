@@ -1,0 +1,172 @@
+---
+title: 'Parte ll: Proyecto de Visualización'
+author: "Sergio Granadal Díaz"
+date: "2025-06-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r preparado_dataset}
+# Se cargan las librerías necesarias
+library(readr)
+library(dplyr)
+library(scales)
+library(stringr)
+
+# Se lee el archivo CSV original
+data <- read_csv("cybersecurity_synthesized_data.csv")
+
+# Limpieza de columnas
+# Asegurarse que 'timestamp' es tipo fecha
+data <- data %>%
+  mutate(timestamp = as.POSIXct(timestamp, format = "%Y-%m-%d %H:%M:%S"))
+
+# Se eliminan los valores extremos ilógicos
+data <- data %>% filter(attack_duration_min > 0)
+
+# Se crean las nuevas columnas
+data <- data %>%
+  mutate(
+    reaction_time = response_time_min / attack_duration_min,
+    severity_by_impact = attack_severity * data_compromised_GB
+  )
+
+# Se normalizan las variables numéricas (manteniendo las originales)
+normalize_column <- function(x) {
+  rescale(x, to = c(0, 1))
+}
+
+cols_to_normalize <- c(
+  "data_compromised_GB",
+  "attack_duration_min",
+  "attack_severity",
+  "response_time_min",
+  "reaction_time",
+  "severity_by_impact"
+)
+
+# Se crea una versión normalizada con prefijo "norm_"
+data <- data %>%
+  mutate(across(all_of(cols_to_normalize), normalize_column, .names = "norm_{.col}"))
+
+# Se reordenan las columnas
+ordered_cols <- c(
+  "timestamp", "attack_type", "target_system", "outcome", "user_role",
+  "location", "industry", "attacker_ip", "target_ip",
+  "data_compromised_GB", "attack_duration_min", "attack_severity",
+  "response_time_min", "reaction_time", "severity_by_impact",
+  "norm_data_compromised_GB", "norm_attack_duration_min", "norm_attack_severity",
+  "norm_response_time_min", "norm_reaction_time", "norm_severity_by_impact",
+  "security_tools_used", "mitigation_method"
+)
+
+data <- data %>% select(all_of(ordered_cols))
+
+# 7. Exportar dataset final listo para Flourish
+write_csv(data, "cybersecurity_prepared_for_flourish.csv")
+```
+
+```{r visualizacion_1}
+
+# Conteo de attack_type
+
+# Se carga el dataset procesado
+data <- read_csv("cybersecurity_prepared_for_flourish.csv")
+
+# Se crea un resumen por tipo de ataque y ordenar por cantidad
+attack_summary <- data %>%
+  group_by(attack_type) %>%
+  summarise(
+    count = as.numeric(n()),  # Asegura que sea tipo numérico
+    avg_attack_severity = mean(attack_severity, na.rm = TRUE),
+    avg_severity_by_impact = mean(severity_by_impact, na.rm = TRUE)
+  ) %>%
+  arrange(desc(count))  # Ordenar de mayor a menor
+
+# Se verifica la estructura
+str(attack_summary)
+
+# Se exporta el CSV para Flourish
+write_csv(attack_summary, "attack_type_summary.csv")
+```
+
+```{r visualizacion_2}
+# Se crea la tabla de resumen por industry y attack_type
+heatmap_data <- data %>%
+  group_by(industry, attack_type) %>%
+  summarise(
+    attack_count = n(),
+    avg_data_compromised = mean(data_compromised_GB, na.rm = TRUE),
+    avg_severity_impact = mean(severity_by_impact, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Guardar archivo listo para Flourish
+write_csv(heatmap_data, "industry_attacktype_heatmap.csv")
+```
+
+```{r visualizacion_4}
+# Agrupar por mitigation_method
+mitigation_summary <- data %>%
+  group_by(mitigation_method) %>%
+  summarise(
+    count = n(),
+    avg_response_time = mean(response_time_min, na.rm = TRUE),
+    success_rate = mean(outcome == "Success") * 100
+  )
+
+# Agrupar por security_tools_used
+tools_summary <- data %>%
+  group_by(security_tools_used) %>%
+  summarise(
+    count = n(),
+    avg_response_time = mean(response_time_min, na.rm = TRUE),
+    success_rate = mean(outcome == "Success") * 100
+  )
+
+# Exportar archivos para Flourish
+write_csv(mitigation_summary, "mitigation_summary.csv")
+write_csv(tools_summary, "security_tools_summary.csv")
+```
+
+```{r visualizacion_5}
+library(lubridate)
+
+# Agrupar por mes y formatear como texto "YYYY-MM"
+temporal_summary <- data %>%
+  mutate(month = format(as.Date(timestamp), "%Y-%m")) %>%  # Formato deseado
+  group_by(month) %>%
+  summarise(attack_count = n()) %>%
+  arrange(month)
+
+# Exportar CSV listo para Flourish
+write_csv(temporal_summary, "temporal_attack_summary.csv")
+```
+
+```{r visualizacion 5}
+geo_summary <- data %>%
+  group_by(location) %>%
+  summarise(
+    attack_count = n(),
+    avg_severity = mean(attack_severity, na.rm = TRUE)
+  )
+
+write_csv(geo_summary, "geographic_attack_summary.csv")
+```
+
+```{r visualizacion 6}
+# Filtrar valores extremos o inválidos (p. ej., reacción infinita o NA)
+scatter_data <- data %>%
+  filter(
+    is.finite(reaction_time),
+    !is.na(severity_by_impact),
+    !is.na(reaction_time)
+  )
+
+# Exportar para Flourish
+write_csv(scatter_data, "reaction_vs_impact_scatter.csv")
+```
+
